@@ -20,6 +20,78 @@ def test_mark_complete_updates_task_status() -> None:
 	assert task.isCompleted is True
 
 
+def test_mark_task_complete_creates_next_daily_occurrence() -> None:
+	owner = Owner(ownerId="owner-1", name="Test", email="test@example.com")
+	scheduler = Scheduler(schedulerId="sched-1", owner=owner, currentDate=date.today())
+	pet = Pet(
+		petId="pet-1",
+		name="Milo",
+		type="Dog",
+		breed="Labrador",
+		age=4,
+		notes="",
+		ownerId="owner-1",
+	)
+	owner.addPet(pet)
+
+	task = Task(
+		taskId="task-daily",
+		petId="pet-1",
+		description="Daily walk",
+		dueDate=date.today(),
+		dueTime=time(8, 0),
+		frequency="daily",
+		recurrence_end_date=date.today() + timedelta(days=5),
+	)
+	scheduler.addTask(task)
+
+	scheduler.mark_task_complete("task-daily")
+
+	all_tasks = scheduler.retrieveAllTasks()
+	completed = next(t for t in all_tasks if t.taskId == "task-daily")
+	next_task = next(t for t in all_tasks if t.taskId == f"task-daily--{(date.today() + timedelta(days=1)).isoformat()}")
+
+	assert completed.isCompleted is True
+	assert next_task.dueDate == date.today() + timedelta(days=1)
+	assert next_task.isCompleted is False
+	assert next_task.frequency == "daily"
+
+
+def test_mark_task_complete_creates_next_weekly_occurrence() -> None:
+	owner = Owner(ownerId="owner-1", name="Test", email="test@example.com")
+	scheduler = Scheduler(schedulerId="sched-1", owner=owner, currentDate=date.today())
+	pet = Pet(
+		petId="pet-1",
+		name="Milo",
+		type="Dog",
+		breed="Labrador",
+		age=4,
+		notes="",
+		ownerId="owner-1",
+	)
+	owner.addPet(pet)
+
+	task = Task(
+		taskId="task-weekly",
+		petId="pet-1",
+		description="Weekly grooming",
+		dueDate=date.today(),
+		dueTime=time(10, 0),
+		frequency="weekly",
+		recurrence_end_date=date.today() + timedelta(weeks=3),
+	)
+	scheduler.addTask(task)
+
+	scheduler.mark_task_complete("task-weekly")
+
+	all_tasks = scheduler.retrieveAllTasks()
+	next_task = next(t for t in all_tasks if t.taskId == f"task-weekly--{(date.today() + timedelta(weeks=1)).isoformat()}")
+
+	assert next_task.dueDate == date.today() + timedelta(weeks=1)
+	assert next_task.isCompleted is False
+	assert next_task.frequency == "weekly"
+
+
 def test_adding_task_to_pet_increases_task_count() -> None:
 	pet = Pet(
 		petId="pet-1",
@@ -203,6 +275,46 @@ def test_conflict_detection() -> None:
 	# Should detect conflict for pet-1
 	assert "pet-1" in conflicts
 	assert len(conflicts["pet-1"]) > 0
+
+
+def test_same_time_warning_detection_across_pets() -> None:
+	"""Verify lightweight warnings detect same-time tasks for different pets."""
+	owner = Owner(ownerId="owner-1", name="Test", email="test@example.com")
+	scheduler = Scheduler(schedulerId="sched-1", owner=owner, currentDate=date.today())
+
+	pet1 = Pet(petId="pet-1", name="Milo", type="Dog", breed="Lab", age=4, notes="", ownerId="owner-1")
+	pet2 = Pet(petId="pet-2", name="Luna", type="Cat", breed="Siamese", age=2, notes="", ownerId="owner-1")
+	owner.addPet(pet1)
+	owner.addPet(pet2)
+
+	task1 = Task(taskId="t1", petId="pet-1", description="Walk", dueDate=date.today(), dueTime=time(9, 0))
+	task2 = Task(taskId="t2", petId="pet-2", description="Feed", dueDate=date.today(), dueTime=time(9, 0))
+
+	scheduler.addTask(task1)
+	scheduler.addTask(task2)
+
+	warnings = scheduler.detectSameTimeConflicts(date.today())
+	assert time(9, 0) in warnings
+	assert len(warnings[time(9, 0)]) == 2
+
+
+def test_warning_report_returns_message_instead_of_crashing() -> None:
+	"""Verify same-time conflicts return a warning string rather than raising an error."""
+	owner = Owner(ownerId="owner-1", name="Test", email="test@example.com")
+	scheduler = Scheduler(schedulerId="sched-1", owner=owner, currentDate=date.today())
+
+	pet1 = Pet(petId="pet-1", name="Milo", type="Dog", breed="Lab", age=4, notes="", ownerId="owner-1")
+	pet2 = Pet(petId="pet-2", name="Luna", type="Cat", breed="Siamese", age=2, notes="", ownerId="owner-1")
+	owner.addPet(pet1)
+	owner.addPet(pet2)
+
+	scheduler.addTask(Task(taskId="t1", petId="pet-1", description="Walk", dueDate=date.today(), dueTime=time(9, 0)))
+	scheduler.addTask(Task(taskId="t2", petId="pet-2", description="Feed", dueDate=date.today(), dueTime=time(9, 0)))
+
+	report = scheduler.getWarningReport(date.today())
+	assert "Warning: multiple tasks are scheduled at 09:00" in report
+	assert "Milo: Walk" in report
+	assert "Luna: Feed" in report
 
 
 def test_filter_by_status_and_pet() -> None:

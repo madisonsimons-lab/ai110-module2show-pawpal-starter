@@ -56,6 +56,18 @@ def seed_demo_data() -> Scheduler:
 			duration_minutes=15,
 			recurrence_end_date=date.today() + timedelta(days=7),
 		),
+		# Same-time task to trigger lightweight conflict warnings
+		Task(
+			taskId="task-006",
+			petId="pet-001",
+			description="Medication reminder",
+			dueDate=date.today(),
+			dueTime=time(9, 0),
+			frequency="daily",
+			priority=2,
+			duration_minutes=5,
+			recurrence_end_date=date.today() + timedelta(days=7),
+		),
 		# Early morning task
 		Task(
 			taskId="task-001",
@@ -157,6 +169,9 @@ def print_conflict_detection(scheduler: Scheduler) -> None:
 	print("=" * 60)
 	report = scheduler.getConflictReport(scheduler.currentDate)
 	print(report)
+	print("\nLightweight Warning Report")
+	print("-" * 60)
+	print(scheduler.getWarningReport(scheduler.currentDate))
 
 
 def demo_filtering(scheduler: Scheduler) -> None:
@@ -263,6 +278,44 @@ def demo_filtering_and_sorting(scheduler: Scheduler) -> None:
 		print("  No completed tasks yet.")
 
 
+def demo_auto_rescheduling(scheduler: Scheduler) -> None:
+	"""Demonstrate automatic creation of the next daily task occurrence."""
+	print("\n\nAutomatic Recurrence Demo")
+	print("=" * 60)
+
+	auto_task = Task(
+		taskId="task-auto-daily",
+		petId="pet-001",
+		description="Auto-generated bedtime check",
+		dueDate=scheduler.currentDate,
+		dueTime=time(20, 0),
+		frequency="daily",
+		priority=2,
+		duration_minutes=5,
+		recurrence_end_date=scheduler.currentDate + timedelta(days=3),
+	)
+	scheduler.addTask(auto_task)
+
+	print("Before completion:")
+	for task in scheduler.sort_by_date_time(
+		[t for t in scheduler.retrieveAllTasks() if t.taskId.startswith("task-auto-daily")]
+	):
+		status = "done" if task.isCompleted else "pending"
+		print(f"  {task.taskId} -> {task.dueDate} at {task.dueTime.strftime('%H:%M')} [{status}]")
+
+	scheduler.mark_task_complete("task-auto-daily")
+
+	print("\nAfter completion via scheduler.mark_task_complete():")
+	for task in scheduler.sort_by_date_time(
+		[t for t in scheduler.retrieveAllTasks() if t.taskId.startswith("task-auto-daily")]
+	):
+		status = "done" if task.isCompleted else "pending"
+		print(f"  {task.taskId} -> {task.dueDate} at {task.dueTime.strftime('%H:%M')} [{status}]")
+
+	print("\nDaily tasks move forward with timedelta(days=1):")
+	print(f"  {scheduler.currentDate} + timedelta(days=1) = {scheduler.currentDate + timedelta(days=1)}")
+
+
 if __name__ == "__main__":
 	demo_scheduler = seed_demo_data()
 	print_todays_schedule(demo_scheduler)
@@ -271,3 +324,4 @@ if __name__ == "__main__":
 	demo_filtering(demo_scheduler)
 	demo_sorting_methods(demo_scheduler)
 	demo_filtering_and_sorting(demo_scheduler)
+	demo_auto_rescheduling(demo_scheduler)

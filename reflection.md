@@ -42,6 +42,10 @@ Finally, I added indexing inside Scheduler (by task id, date, and pet id) to imp
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
 
+One tradeoff my scheduler makes is using a lightweight warning system for exact same-time conflicts instead of trying to fully resolve every overlapping schedule automatically. For example, if two tasks are both scheduled at 9:00 AM, the scheduler returns a warning message instead of crashing or attempting to reschedule one of them on its own.
+
+This tradeoff is reasonable for this project because it keeps the scheduling logic simple, readable, and easy to test. It also gives the pet owner useful feedback without adding too much complexity too early. A more advanced system could compare full task durations, travel time, or user preferences, but for this version, warning the user about possible conflicts is enough to support good decisions without overengineering the solution.
+
 ---
 
 ## 3. AI Collaboration

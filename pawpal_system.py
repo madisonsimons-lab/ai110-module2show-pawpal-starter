@@ -77,6 +77,18 @@ class Task:
         """Return True if this task recurs beyond a single occurrence."""
         return self.frequency != "once"
 
+    def next_due_date(self) -> Optional[date]:
+        """Return the next due date for daily or weekly tasks."""
+        if self.frequency == "daily":
+            return self.dueDate + timedelta(days=1)
+        if self.frequency == "weekly":
+            return self.dueDate + timedelta(weeks=1)
+        return None
+
+    def recurrence_base_id(self) -> str:
+        """Return a stable base id for chained recurring task instances."""
+        return self.taskId.split("--", maxsplit=1)[0]
+
 
 @dataclass
 class Pet:
@@ -219,6 +231,65 @@ class Scheduler:
                     return
         raise ValueError(f"Task ID '{taskId}' not found across owner's pets.")
 
+    def mark_task_complete(self, taskId: str) -> Task:
+        """Mark a task complete and spawn the next recurring instance when applicable.
+
+        Args:
+            taskId: Identifier of the task being completed.
+
+        Returns:
+            The updated task object that was marked complete.
+
+        Raises:
+            ValueError: If no task with the given id exists for this owner.
+        """
+        for pet in self.owner.viewPets():
+            for task in pet.tasks:
+                if task.taskId != taskId:
+                    continue
+
+                if task.isCompleted:
+                    return task
+
+                task.mark_complete()
+                self._create_next_occurrence(task, pet)
+                return task
+
+        raise ValueError(f"Task ID '{taskId}' not found across owner's pets.")
+
+    def _create_next_occurrence(self, task: Task, pet: Pet) -> Optional[Task]:
+        """Create the next concrete task instance for a recurring task.
+
+        This helper uses the task frequency to compute the next due date,
+        preserves the important scheduling fields, and avoids creating
+        duplicate follow-up tasks for the same pet.
+        """
+        next_due_date = task.next_due_date()
+        if next_due_date is None:
+            return None
+
+        if task.recurrence_end_date and next_due_date > task.recurrence_end_date:
+            return None
+
+        next_task_id = f"{task.recurrence_base_id()}--{next_due_date.isoformat()}"
+        if any(existing.taskId == next_task_id for existing in pet.tasks):
+            return None
+
+        next_task = Task(
+            taskId=next_task_id,
+            petId=task.petId,
+            description=task.description,
+            dueDate=next_due_date,
+            dueTime=task.dueTime,
+            frequency=task.frequency,
+            isCompleted=False,
+            priority=task.priority,
+            duration_minutes=task.duration_minutes,
+            recurrence_end_date=task.recurrence_end_date,
+        )
+        pet.addTask(next_task)
+        return next_task
+
     def getTodaysTasks(self) -> list[Task]:
         """Return incomplete tasks due on the scheduler's current date, sorted by time then priority."""
         today_tasks = [
@@ -253,29 +324,44 @@ class Scheduler:
         return [task for task in self.retrieveAllTasks() if task.petId == petId and not task.isCompleted]
 
     def getTasksByStatus(self, isCompleted: bool) -> list[Task]:
-        """Filter tasks by completion status."""
+        """Return tasks whose completion status matches the requested value."""
         return [task for task in self.retrieveAllTasks() if task.isCompleted == isCompleted]
 
     def getTasksByTimeWindow(self, start_time: time, end_time: time, date_filter: Optional[date] = None) -> list[Task]:
-        """Get incomplete tasks within a time window, optionally for a specific date."""
+        """Return incomplete tasks scheduled within an inclusive time window.
+
+        Args:
+            start_time: Earliest allowed task time.
+            end_time: Latest allowed task time.
+            date_filter: Optional day to search. When omitted, tasks from all
+                dates are considered.
+        """
         tasks = self.retrieveAllTasks()
         if date_filter:
             tasks = [t for t in tasks if t.dueDate == date_filter]
         return [t for t in tasks if start_time <= t.dueTime <= end_time and not t.isCompleted]
 
     def getTasksForPetAndStatus(self, petId: str, isCompleted: bool) -> list[Task]:
-        """Combine filters: pet + status."""
+        """Return tasks for a specific pet that match a completion state."""
         return [
             t for t in self.retrieveAllTasks()
             if t.petId == petId and t.isCompleted == isCompleted
         ]
 
     def expandRecurringTasks(self, startDate: date, endDate: date) -> list[Task]:
-        """Expand all recurring tasks across a date range, generating new task instances."""
+        """Expand tasks into a chronological list of occurrences for a date range.
+
+        Non-recurring tasks are included directly when they fall inside the
+        requested window. Recurring tasks generate synthetic one-time
+        occurrences so the schedule can be previewed day by day.
+        """
         expanded: list[Task] = []
 
         for pet in self.owner.viewPets():
             for task in pet.tasks:
+                if task.isCompleted:
+                    continue
+
                 if not task.is_recurring():
                     # Non-recurring: add if in range
                     if startDate <= task.dueDate <= endDate:
@@ -319,7 +405,11 @@ class Scheduler:
         return sorted(expanded, key=lambda t: (t.dueDate, t.dueTime))
 
     def detectConflicts(self, date_filter: Optional[date] = None) -> dict:
-        """Detect overlapping tasks for each pet on a given date."""
+        """Detect overlapping task durations for each pet on a given date.
+
+        The result groups conflicts by pet id and only reports slots where two
+        or more incomplete tasks overlap in time.
+        """
         target_date = date_filter or self.currentDate
         conflicts: dict = {}
 
@@ -366,6 +456,51 @@ class Scheduler:
 
         return conflicts
 
+    def detectSameTimeConflicts(self, date_filter: Optional[date] = None) -> dict[time, list[Task]]:
+        """Detect incomplete tasks that share the same start time on a given date.
+
+        This lightweight check looks only for exact time matches, which makes
+        it fast and easy to explain in the UI or terminal output.
+        """
+        target_date = date_filter or self.currentDate
+        same_time_slots: dict[time, list[Task]] = {}
+
+        for task in self.retrieveAllTasks():
+            if task.isCompleted or task.dueDate != target_date:
+                continue
+            same_time_slots.setdefault(task.dueTime, []).append(task)
+
+        return {
+            due_time: tasks
+            for due_time, tasks in same_time_slots.items()
+            if len(tasks) > 1
+        }
+
+    def getWarningReport(self, date_filter: Optional[date] = None) -> str:
+        """Build a human-readable warning report for same-time task conflicts.
+
+        Unlike stricter validation, this method returns warning text instead of
+        raising an exception so the program can keep running and inform the
+        user about possible schedule issues.
+        """
+        same_time_conflicts = self.detectSameTimeConflicts(date_filter)
+        if not same_time_conflicts:
+            return "No same-time scheduling warnings."
+
+        warnings: list[str] = []
+        for due_time, tasks in sorted(same_time_conflicts.items(), key=lambda item: item[0]):
+            task_descriptions = []
+            for task in tasks:
+                pet = self.owner.getPet(task.petId)
+                task_descriptions.append(f"{pet.name}: {task.description}")
+
+            warnings.append(
+                "Warning: multiple tasks are scheduled at "
+                f"{due_time.strftime('%H:%M')} -> {', '.join(task_descriptions)}"
+            )
+
+        return "\n".join(warnings)
+
     def getConflictReport(self, date_filter: Optional[date] = None) -> str:
         """Return a human-readable conflict report."""
         conflicts = self.detectConflicts(date_filter)
@@ -388,38 +523,36 @@ class Scheduler:
         return "\n".join(report)
 
     def sort_by_time(self, tasks: list[Task]) -> list[Task]:
-        """Sort a list of tasks by their time attribute using a lambda key function.
-        
-        The lambda function extracts the dueTime (time object) for comparison.
-        Python's time class supports natural ordering, so tasks sort chronologically.
+        """Return tasks sorted chronologically by due time.
+
+        The implementation uses ``sorted(..., key=lambda t: t.dueTime)`` so the
+        time object itself becomes the sort key.
         """
         return sorted(tasks, key=lambda t: t.dueTime)
 
     def sort_by_time_and_priority(self, tasks: list[Task]) -> list[Task]:
-        """Sort tasks by time, then by priority (high to low).
-        
-        The lambda key returns a tuple: (time, -priority_value).
-        Tuple sorting works left-to-right: first by time, then by negated priority
-        (negative so higher priority values appear first).
+        """Return tasks sorted by time and then by highest priority first.
+
+        The tuple key ``(t.dueTime, -t.priority)`` keeps chronological ordering
+        while ensuring more important tasks appear first when times are equal.
         """
         return sorted(tasks, key=lambda t: (t.dueTime, -t.priority))
 
     def sort_by_date_time(self, tasks: list[Task]) -> list[Task]:
-        """Sort tasks by date, then by time.
-        
-        Useful for displaying a chronological view across multiple days.
-        """
+        """Return tasks sorted first by date and then by time."""
         return sorted(tasks, key=lambda t: (t.dueDate, t.dueTime))
 
     def filter_by_status_and_pet(self, petId: Optional[str] = None, isCompleted: Optional[bool] = None) -> list[Task]:
-        """Filter tasks by completion status and/or pet ID.
+        """Filter tasks by completion status and/or pet identifier.
         
         Args:
-            petId: Optional pet ID to filter by. If None, all pets included.
-            isCompleted: Optional completion status. If None, all statuses included.
+            petId: Optional pet id to filter by. If omitted, tasks for all pets
+                are included.
+            isCompleted: Optional completion flag. If omitted, both completed
+                and incomplete tasks are included.
         
         Returns:
-            List of tasks matching the filter criteria.
+            A list of tasks matching every provided filter.
         """
         tasks = self.retrieveAllTasks()
         

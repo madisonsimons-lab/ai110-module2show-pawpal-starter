@@ -53,3 +53,12 @@ The class skeleton was refined to reduce relationship drift and improve lookup p
 - Ownership and assignment guards were added to prevent mismatched `ownerId` and `petId` relationships.
 
 These changes preserve the original UML intent while strengthening data consistency and runtime behavior.
+
+## Smarter Scheduling
+
+The scheduler now includes several algorithmic features that make task planning more useful and realistic.
+
+- Sorting by time, date, and priority so daily plans appear in a clear order.
+- Filtering by pet, completion status, and time window to narrow down the task list quickly.
+- Recurring task expansion and auto-rescheduling for daily or weekly tasks after completion.
+- Conflict detection for overlapping task durations plus lightweight warnings when multiple tasks share the same start time.
