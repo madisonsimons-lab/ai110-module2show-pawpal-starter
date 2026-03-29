@@ -203,3 +203,40 @@ def test_conflict_detection() -> None:
 	# Should detect conflict for pet-1
 	assert "pet-1" in conflicts
 	assert len(conflicts["pet-1"]) > 0
+
+
+def test_filter_by_status_and_pet() -> None:
+	"""Verify combined filtering by completion status and pet ID."""
+	owner = Owner(ownerId="owner-1", name="Test", email="test@example.com")
+	scheduler = Scheduler(schedulerId="sched-1", owner=owner, currentDate=date.today())
+	
+	pet1 = Pet(petId="pet-1", name="Milo", type="Dog", breed="Lab", age=4, notes="", ownerId="owner-1")
+	pet2 = Pet(petId="pet-2", name="Luna", type="Cat", breed="Siamese", age=2, notes="", ownerId="owner-1")
+	owner.addPet(pet1)
+	owner.addPet(pet2)
+	
+	# Create tasks for both pets
+	task1 = Task(taskId="t1", petId="pet-1", description="Walk", dueDate=date.today(), dueTime=time(8, 0))
+	task2 = Task(taskId="t2", petId="pet-1", description="Feed", dueDate=date.today(), dueTime=time(9, 0))
+	task3 = Task(taskId="t3", petId="pet-2", description="Groom", dueDate=date.today(), dueTime=time(10, 0))
+	
+	scheduler.addTask(task1)
+	scheduler.addTask(task2)
+	scheduler.addTask(task3)
+	
+	# Mark task1 as complete
+	task1.mark_complete()
+	
+	# Test: Filter only Milo's incomplete tasks (should be only task2)
+	milo_incomplete = scheduler.filter_by_status_and_pet(petId="pet-1", isCompleted=False)
+	assert len(milo_incomplete) == 1
+	assert milo_incomplete[0].taskId == "t2"
+	
+	# Test: Filter only completed tasks (should be task1)
+	completed = scheduler.filter_by_status_and_pet(isCompleted=True)
+	assert len(completed) == 1
+	assert completed[0].taskId == "t1"
+	
+	# Test: Filter all of Milo's tasks regardless of status (should be task1 and task2)
+	all_milo = scheduler.filter_by_status_and_pet(petId="pet-1")
+	assert len(all_milo) == 2

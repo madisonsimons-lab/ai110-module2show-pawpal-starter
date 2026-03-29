@@ -30,30 +30,9 @@ def seed_demo_data() -> Scheduler:
 
 	scheduler = Scheduler(schedulerId="sched-001", owner=owner, currentDate=date.today())
 
-	# Create recurring and one-time tasks with priorities
-	tasks = [
-		Task(
-			taskId="task-001",
-			petId="pet-001",
-			description="Morning walk",
-			dueDate=date.today(),
-			dueTime=time(8, 0),
-			frequency="daily",
-			priority=3,
-			duration_minutes=30,
-			recurrence_end_date=date.today() + timedelta(days=7),
-		),
-		Task(
-			taskId="task-002",
-			petId="pet-002",
-			description="Feed breakfast",
-			dueDate=date.today(),
-			dueTime=time(9, 0),
-			frequency="daily",
-			priority=2,
-			duration_minutes=15,
-			recurrence_end_date=date.today() + timedelta(days=7),
-		),
+	# Create tasks OUT OF ORDER (not sorted by time) to demonstrate sorting
+	tasks_out_of_order = [
+		# Evening task first
 		Task(
 			taskId="task-003",
 			petId="pet-001",
@@ -65,6 +44,31 @@ def seed_demo_data() -> Scheduler:
 			duration_minutes=45,
 			recurrence_end_date=date.today() + timedelta(days=7),
 		),
+		# Later morning task
+		Task(
+			taskId="task-002",
+			petId="pet-002",
+			description="Feed breakfast",
+			dueDate=date.today(),
+			dueTime=time(9, 0),
+			frequency="daily",
+			priority=2,
+			duration_minutes=15,
+			recurrence_end_date=date.today() + timedelta(days=7),
+		),
+		# Early morning task
+		Task(
+			taskId="task-001",
+			petId="pet-001",
+			description="Morning walk",
+			dueDate=date.today(),
+			dueTime=time(8, 0),
+			frequency="daily",
+			priority=3,
+			duration_minutes=30,
+			recurrence_end_date=date.today() + timedelta(days=7),
+		),
+		# Future appointment
 		Task(
 			taskId="task-004",
 			petId="pet-002",
@@ -75,10 +79,28 @@ def seed_demo_data() -> Scheduler:
 			priority=3,
 			duration_minutes=60,
 		),
+		# Additional mid-day task (out of order)
+		Task(
+			taskId="task-005",
+			petId="pet-001",
+			description="Lunch snack",
+			dueDate=date.today(),
+			dueTime=time(12, 30),
+			frequency="daily",
+			priority=1,
+			duration_minutes=10,
+			recurrence_end_date=date.today() + timedelta(days=7),
+		),
 	]
 
-	for task in tasks:
+	# Add tasks in the out-of-order sequence
+	for task in tasks_out_of_order:
 		scheduler.addTask(task)
+
+	# Mark one task as completed to demonstrate status filtering
+	all_tasks = scheduler.retrieveAllTasks()
+	if all_tasks:
+		all_tasks[0].mark_complete()
 
 	return scheduler
 
@@ -193,6 +215,54 @@ def demo_sorting_methods(scheduler: Scheduler) -> None:
 		print(f"  {task.dueDate} {task.dueTime.strftime('%H:%M')} - {pet.name}: {task.description}")
 
 
+def demo_filtering_and_sorting(scheduler: Scheduler) -> None:
+	"""Demonstrate combined filtering and sorting capabilities."""
+	print("\n\nFiltering + Sorting Combined Demo")
+	print("=" * 60)
+	
+	# Demo 1: All tasks as entered (out of order)
+	print("\n[ORIGINAL ORDER - Tasks added to scheduler in random order]")
+	all_tasks = scheduler.retrieveAllTasks()
+	for task in all_tasks:
+		pet = scheduler.owner.getPet(task.petId)
+		status = "✓ DONE" if task.isCompleted else "○ TODO"
+		print(f"  {task.dueTime.strftime('%H:%M')} - {pet.name}: {task.description} [{status}]")
+	
+	# Demo 2: Filter only incomplete tasks
+	print("\n[FILTERED: Only incomplete tasks, then sorted by time + priority]")
+	incomplete = scheduler.filter_by_status_and_pet(isCompleted=False)
+	sorted_incomplete = scheduler.sort_by_time_and_priority(incomplete)
+	for task in sorted_incomplete:
+		pet = scheduler.owner.getPet(task.petId)
+		print(f"  {task.dueTime.strftime('%H:%M')} - Priority {task.priority} - {pet.name}: {task.description}")
+	
+	# Demo 3: Filter only Milo's tasks, sorted by time
+	print("\n[FILTERED: Only Milo's tasks (pet-001), then sorted by time]")
+	milo_tasks = scheduler.filter_by_status_and_pet(petId="pet-001")
+	sorted_milo = scheduler.sort_by_time(milo_tasks)
+	for task in sorted_milo:
+		status = "✓ DONE" if task.isCompleted else "○ TODO"
+		print(f"  {task.dueTime.strftime('%H:%M')} - {task.description} [{status}]")
+	
+	# Demo 4: Filter only Luna's incomplete tasks
+	print("\n[FILTERED: Only Luna's incomplete tasks (pet-002), sorted by priority]")
+	luna_incomplete = scheduler.filter_by_status_and_pet(petId="pet-002", isCompleted=False)
+	sorted_luna = scheduler.sort_by_time_and_priority(luna_incomplete)
+	for task in sorted_luna:
+		priority = {1: "Low", 2: "Med", 3: "High"}[task.priority]
+		print(f"  {task.dueTime.strftime('%H:%M')} - Priority {priority} - {task.description}")
+	
+	# Demo 5: Show completed tasks
+	print("\n[FILTERED: Only completed tasks]")
+	completed = scheduler.filter_by_status_and_pet(isCompleted=True)
+	if completed:
+		for task in completed:
+			pet = scheduler.owner.getPet(task.petId)
+			print(f"  ✓ {task.dueTime.strftime('%H:%M')} - {pet.name}: {task.description}")
+	else:
+		print("  No completed tasks yet.")
+
+
 if __name__ == "__main__":
 	demo_scheduler = seed_demo_data()
 	print_todays_schedule(demo_scheduler)
@@ -200,3 +270,4 @@ if __name__ == "__main__":
 	print_conflict_detection(demo_scheduler)
 	demo_filtering(demo_scheduler)
 	demo_sorting_methods(demo_scheduler)
+	demo_filtering_and_sorting(demo_scheduler)

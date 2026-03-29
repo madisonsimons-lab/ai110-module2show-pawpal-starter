@@ -410,3 +410,23 @@ class Scheduler:
         Useful for displaying a chronological view across multiple days.
         """
         return sorted(tasks, key=lambda t: (t.dueDate, t.dueTime))
+
+    def filter_by_status_and_pet(self, petId: Optional[str] = None, isCompleted: Optional[bool] = None) -> list[Task]:
+        """Filter tasks by completion status and/or pet ID.
+        
+        Args:
+            petId: Optional pet ID to filter by. If None, all pets included.
+            isCompleted: Optional completion status. If None, all statuses included.
+        
+        Returns:
+            List of tasks matching the filter criteria.
+        """
+        tasks = self.retrieveAllTasks()
+        
+        if petId is not None:
+            tasks = [t for t in tasks if t.petId == petId]
+        
+        if isCompleted is not None:
+            tasks = [t for t in tasks if t.isCompleted == isCompleted]
+        
+        return tasks
