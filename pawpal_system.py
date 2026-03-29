@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, time
+from datetime import date, time, datetime, timedelta
+from typing import Optional
 
 VALID_FREQUENCIES = {"once", "daily", "weekly", "monthly"}
 
@@ -15,6 +16,9 @@ class Task:
     dueTime: time
     frequency: str = "once"
     isCompleted: bool = False
+    priority: int = 1  # 1=low, 2=medium, 3=high
+    duration_minutes: int = 30  # for conflict detection
+    recurrence_end_date: Optional[date] = None  # end of recurrence range
 
     def __post_init__(self) -> None:
         """Validate task frequency after dataclass initialization."""
@@ -68,6 +72,10 @@ class Task:
             f"on {self.dueDate.isoformat()} at {self.dueTime.isoformat()} "
             f"({self.frequency}, {completion})"
         )
+
+    def is_recurring(self) -> bool:
+        """Return True if this task recurs beyond a single occurrence."""
+        return self.frequency != "once"
 
 
 @dataclass
@@ -212,12 +220,14 @@ class Scheduler:
         raise ValueError(f"Task ID '{taskId}' not found across owner's pets.")
 
     def getTodaysTasks(self) -> list[Task]:
-        """Return incomplete tasks due on the scheduler's current date."""
-        return [
+        """Return incomplete tasks due on the scheduler's current date, sorted by time then priority."""
+        today_tasks = [
             task
             for task in self.retrieveAllTasks()
             if task.dueDate == self.currentDate and not task.isCompleted
         ]
+        # Sort by: time, then priority (descending)
+        return sorted(today_tasks, key=lambda t: (t.dueTime, -t.priority))
 
     def getUpcomingTasks(self) -> list[Task]:
         """Return incomplete tasks due after the scheduler's current date."""
@@ -237,3 +247,142 @@ class Scheduler:
             organized[task_date].sort(key=lambda t: t.dueTime)
 
         return dict(sorted(organized.items(), key=lambda item: item[0]))
+
+    def getTasksForPet(self, petId: str) -> list[Task]:
+        """Return all incomplete tasks for a specific pet."""
+        return [task for task in self.retrieveAllTasks() if task.petId == petId and not task.isCompleted]
+
+    def getTasksByStatus(self, isCompleted: bool) -> list[Task]:
+        """Filter tasks by completion status."""
+        return [task for task in self.retrieveAllTasks() if task.isCompleted == isCompleted]
+
+    def getTasksByTimeWindow(self, start_time: time, end_time: time, date_filter: Optional[date] = None) -> list[Task]:
+        """Get incomplete tasks within a time window, optionally for a specific date."""
+        tasks = self.retrieveAllTasks()
+        if date_filter:
+            tasks = [t for t in tasks if t.dueDate == date_filter]
+        return [t for t in tasks if start_time <= t.dueTime <= end_time and not t.isCompleted]
+
+    def getTasksForPetAndStatus(self, petId: str, isCompleted: bool) -> list[Task]:
+        """Combine filters: pet + status."""
+        return [
+            t for t in self.retrieveAllTasks()
+            if t.petId == petId and t.isCompleted == isCompleted
+        ]
+
+    def expandRecurringTasks(self, startDate: date, endDate: date) -> list[Task]:
+        """Expand all recurring tasks across a date range, generating new task instances."""
+        expanded: list[Task] = []
+
+        for pet in self.owner.viewPets():
+            for task in pet.tasks:
+                if not task.is_recurring():
+                    # Non-recurring: add if in range
+                    if startDate <= task.dueDate <= endDate:
+                        expanded.append(task)
+                else:
+                    # Recurring: generate instances
+                    current_date = max(task.dueDate, startDate)
+                    recurrence_limit = task.recurrence_end_date or endDate
+
+                    while current_date <= min(endDate, recurrence_limit):
+                        # Create a new task instance for this occurrence
+                        occurrence = Task(
+                            taskId=f"{task.taskId}--{current_date.isoformat()}",
+                            petId=task.petId,
+                            description=task.description,
+                            dueDate=current_date,
+                            dueTime=task.dueTime,
+                            frequency="once",  # mark as non-recurring
+                            priority=task.priority,
+                            duration_minutes=task.duration_minutes,
+                            isCompleted=False,
+                        )
+                        expanded.append(occurrence)
+
+                        # Advance by frequency
+                        if task.frequency == "daily":
+                            current_date += timedelta(days=1)
+                        elif task.frequency == "weekly":
+                            current_date += timedelta(weeks=1)
+                        elif task.frequency == "monthly":
+                            # Edge case: handle month-end dates gracefully
+                            try:
+                                if current_date.month == 12:
+                                    current_date = current_date.replace(year=current_date.year + 1, month=1)
+                                else:
+                                    current_date = current_date.replace(month=current_date.month + 1)
+                            except ValueError:
+                                # Day doesn't exist in next month (e.g., Jan 31 → Feb 31)
+                                break
+
+        return sorted(expanded, key=lambda t: (t.dueDate, t.dueTime))
+
+    def detectConflicts(self, date_filter: Optional[date] = None) -> dict:
+        """Detect overlapping tasks for each pet on a given date."""
+        target_date = date_filter or self.currentDate
+        conflicts: dict = {}
+
+        for pet in self.owner.viewPets():
+            # Get tasks for this pet on the target date
+            pet_tasks = [
+                t for t in pet.viewTasks()
+                if t.dueDate == target_date and not t.isCompleted
+            ]
+
+            # Group tasks by start time + duration overlap
+            time_slots: dict = {}
+            for task in pet_tasks:
+                task_start = datetime.combine(task.dueDate, task.dueTime)
+                task_end = task_start + timedelta(minutes=task.duration_minutes)
+
+                # Check if this task overlaps with any existing slot
+                found_overlap = False
+                for slot_time, slot_tasks in time_slots.items():
+                    slot_start = datetime.combine(target_date, slot_time)
+                    slot_end = slot_start + timedelta(
+                        minutes=max(t.duration_minutes for t in slot_tasks)
+                    )
+
+                    # Overlap detection: task_start < slot_end AND task_end > slot_start
+                    if task_start < slot_end and task_end > slot_start:
+                        slot_tasks.append(task)
+                        found_overlap = True
+                        break
+
+                if not found_overlap:
+                    # No overlap found, create new slot
+                    time_slots[task.dueTime] = [task]
+
+            # Collect conflict slots (len > 1)
+            pet_conflicts = [
+                (slot_time, slot_tasks)
+                for slot_time, slot_tasks in time_slots.items()
+                if len(slot_tasks) > 1
+            ]
+
+            if pet_conflicts:
+                conflicts[pet.petId] = pet_conflicts
+
+        return conflicts
+
+    def getConflictReport(self, date_filter: Optional[date] = None) -> str:
+        """Return a human-readable conflict report."""
+        conflicts = self.detectConflicts(date_filter)
+
+        if not conflicts:
+            return "No scheduling conflicts detected."
+
+        report = []
+        for petId, conflict_slots in conflicts.items():
+            pet = self.owner.getPet(petId)
+            report.append(f"\n⚠ Conflicts for {pet.name}:")
+            for slot_time, tasks in conflict_slots:
+                times_str = ", ".join([
+                    f"{t.dueTime.strftime('%H:%M')}–{(datetime.combine(date.today(), t.dueTime) + timedelta(minutes=t.duration_minutes)).time().strftime('%H:%M')}"
+                    for t in tasks
+                ])
+                descriptions = ", ".join([t.description for t in tasks])
+                report.append(f"  {times_str}: {descriptions}")
+
+        return "\n".join(report)
