@@ -352,3 +352,95 @@ def test_filter_by_status_and_pet() -> None:
 	# Test: Filter all of Milo's tasks regardless of status (should be task1 and task2)
 	all_milo = scheduler.filter_by_status_and_pet(petId="pet-1")
 	assert len(all_milo) == 2
+
+
+def test_sorting_correctness_returns_tasks_in_chronological_order() -> None:
+	"""Sorting Correctness: tasks should be returned by date, then time."""
+	owner = Owner(ownerId="owner-1", name="Test", email="test@example.com")
+	scheduler = Scheduler(schedulerId="sched-1", owner=owner, currentDate=date(2026, 3, 1))
+	pet = Pet(
+		petId="pet-1",
+		name="Milo",
+		type="Dog",
+		breed="Lab",
+		age=4,
+		notes="",
+		ownerId="owner-1",
+	)
+	owner.addPet(pet)
+
+	# Intentionally add in non-chronological order.
+	scheduler.addTask(Task(taskId="t3", petId="pet-1", description="Late", dueDate=date(2026, 3, 2), dueTime=time(9, 0)))
+	scheduler.addTask(Task(taskId="t1", petId="pet-1", description="Earliest", dueDate=date(2026, 3, 1), dueTime=time(8, 0)))
+	scheduler.addTask(Task(taskId="t2", petId="pet-1", description="Middle", dueDate=date(2026, 3, 1), dueTime=time(12, 0)))
+
+	ordered_ids = [task.taskId for task in scheduler.retrieveAllTasks()]
+	assert ordered_ids == ["t1", "t2", "t3"]
+
+
+def test_recurrence_logic_daily_completion_creates_following_day_task() -> None:
+	"""Recurrence Logic: completing a daily task creates the next day's task."""
+	base_date = date(2026, 3, 10)
+	owner = Owner(ownerId="owner-1", name="Test", email="test@example.com")
+	scheduler = Scheduler(schedulerId="sched-1", owner=owner, currentDate=base_date)
+	pet = Pet(
+		petId="pet-1",
+		name="Milo",
+		type="Dog",
+		breed="Lab",
+		age=4,
+		notes="",
+		ownerId="owner-1",
+	)
+	owner.addPet(pet)
+
+	daily = Task(
+		taskId="daily-walk",
+		petId="pet-1",
+		description="Daily walk",
+		dueDate=base_date,
+		dueTime=time(8, 30),
+		frequency="daily",
+		recurrence_end_date=base_date + timedelta(days=3),
+	)
+	scheduler.addTask(daily)
+
+	scheduler.mark_task_complete("daily-walk")
+
+	next_id = f"daily-walk--{(base_date + timedelta(days=1)).isoformat()}"
+	all_ids = [task.taskId for task in scheduler.retrieveAllTasks()]
+
+	assert "daily-walk" in all_ids
+	assert next_id in all_ids
+
+	next_task = next(task for task in scheduler.retrieveAllTasks() if task.taskId == next_id)
+	assert next_task.dueDate == base_date + timedelta(days=1)
+	assert next_task.frequency == "daily"
+	assert next_task.isCompleted is False
+
+
+def test_conflict_detection_flags_duplicate_times_for_same_pet() -> None:
+	"""Conflict Detection: duplicate start times should be flagged as conflicts."""
+	target_date = date(2026, 3, 15)
+	owner = Owner(ownerId="owner-1", name="Test", email="test@example.com")
+	scheduler = Scheduler(schedulerId="sched-1", owner=owner, currentDate=target_date)
+	pet = Pet(
+		petId="pet-1",
+		name="Milo",
+		type="Dog",
+		breed="Lab",
+		age=4,
+		notes="",
+		ownerId="owner-1",
+	)
+	owner.addPet(pet)
+
+	scheduler.addTask(Task(taskId="a", petId="pet-1", description="Walk", dueDate=target_date, dueTime=time(9, 0), duration_minutes=20))
+	scheduler.addTask(Task(taskId="b", petId="pet-1", description="Feed", dueDate=target_date, dueTime=time(9, 0), duration_minutes=15))
+
+	conflicts = scheduler.detectConflicts(target_date)
+
+	assert "pet-1" in conflicts
+	slot_time, slot_tasks = conflicts["pet-1"][0]
+	assert slot_time == time(9, 0)
+	assert {task.taskId for task in slot_tasks} == {"a", "b"}
