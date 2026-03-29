@@ -41,3 +41,15 @@ pip install -r requirements.txt
 5. Add tests to verify key behaviors.
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
+
+## Architecture updates implemented
+
+The class skeleton was refined to reduce relationship drift and improve lookup performance.
+
+- `Pet` and `Task` were implemented as dataclasses for cleaner models and type-safe fields.
+- `Scheduler` is the source of truth for task storage, with index structures for fast lookup by id, date, and pet.
+- `Owner` now validates pet ownership and delegates task assignment through `Scheduler`.
+- Task status is validated against allowed values (`pending`, `in_progress`, `completed`, `cancelled`).
+- Ownership and assignment guards were added to prevent mismatched `ownerId` and `petId` relationships.
+
+These changes preserve the original UML intent while strengthening data consistency and runtime behavior.
