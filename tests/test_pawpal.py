@@ -1,4 +1,6 @@
 from datetime import date, time, timedelta
+from pathlib import Path
+import tempfile
 
 from pawpal_system import Pet, Task, Owner, Scheduler
 
@@ -118,7 +120,7 @@ def test_adding_task_to_pet_increases_task_count() -> None:
 
 
 def test_tasks_sorted_by_priority() -> None:
-	"""Verify getTodaysTasks sorts by time, then priority."""
+	"""Verify getTodaysTasks sorts by priority, then time."""
 	owner = Owner(ownerId="owner-1", name="Test", email="test@example.com")
 	scheduler = Scheduler(schedulerId="sched-1", owner=owner, currentDate=date.today())
 	
@@ -159,6 +161,38 @@ def test_tasks_sorted_by_priority() -> None:
 	todays = scheduler.getTodaysTasks()
 	assert todays[0].priority == 3  # High priority first
 	assert todays[1].priority == 1  # Low priority second
+
+
+def test_priority_first_beats_earlier_time() -> None:
+	"""Verify higher priority task is shown before lower-priority earlier task."""
+	owner = Owner(ownerId="owner-1", name="Test", email="test@example.com")
+	scheduler = Scheduler(schedulerId="sched-1", owner=owner, currentDate=date.today())
+	pet = Pet(petId="pet-1", name="Milo", type="Dog", breed="Lab", age=4, notes="", ownerId="owner-1")
+	owner.addPet(pet)
+
+	early_low = Task(
+		taskId="t-low",
+		petId="pet-1",
+		description="Low priority early",
+		dueDate=date.today(),
+		dueTime=time(8, 0),
+		priority=1,
+	)
+	later_high = Task(
+		taskId="t-high",
+		petId="pet-1",
+		description="High priority later",
+		dueDate=date.today(),
+		dueTime=time(9, 0),
+		priority=3,
+	)
+
+	scheduler.addTask(early_low)
+	scheduler.addTask(later_high)
+
+	todays = scheduler.getTodaysTasks()
+	assert todays[0].taskId == "t-high"
+	assert todays[1].taskId == "t-low"
 
 
 def test_recurring_task_expansion() -> None:
@@ -417,6 +451,66 @@ def test_recurrence_logic_daily_completion_creates_following_day_task() -> None:
 	assert next_task.dueDate == base_date + timedelta(days=1)
 	assert next_task.frequency == "daily"
 	assert next_task.isCompleted is False
+
+
+def test_find_next_available_slot_returns_open_time() -> None:
+	"""Verify advanced slot search returns the earliest free slot for a pet."""
+	base_day = date(2026, 3, 10)
+	owner = Owner(ownerId="owner-1", name="Test", email="test@example.com")
+	scheduler = Scheduler(schedulerId="sched-1", owner=owner, currentDate=base_day)
+	pet = Pet(petId="pet-1", name="Milo", type="Dog", breed="Lab", age=4, notes="", ownerId="owner-1")
+	owner.addPet(pet)
+
+	scheduler.addTask(Task(taskId="t1", petId="pet-1", description="Walk", dueDate=base_day, dueTime=time(8, 0), duration_minutes=30))
+	scheduler.addTask(Task(taskId="t2", petId="pet-1", description="Feed", dueDate=base_day, dueTime=time(9, 0), duration_minutes=30))
+
+	slot = scheduler.find_next_available_slot(
+		petId="pet-1",
+		duration_minutes=30,
+		start_date=base_day,
+		day_start=time(8, 0),
+		day_end=time(10, 0),
+		step_minutes=15,
+		search_days=1,
+	)
+
+	assert slot is not None
+	slot_date, slot_time = slot
+	assert slot_date == base_day
+	assert slot_time == time(8, 30)
+
+
+def test_owner_json_round_trip_preserves_pets_and_tasks() -> None:
+	"""Verify owner.save_to_json and load_from_json preserve nested task data."""
+	owner = Owner(ownerId="owner-1", name="Jordan", email="jordan@example.com")
+	pet = Pet(petId="pet-1", name="Milo", type="Dog", breed="Lab", age=4, notes="Friendly", ownerId="owner-1")
+	owner.addPet(pet)
+	pet.addTask(
+		Task(
+			taskId="task-1",
+			petId="pet-1",
+			description="Morning walk",
+			dueDate=date(2026, 3, 10),
+			dueTime=time(8, 0),
+			frequency="daily",
+			priority=3,
+			duration_minutes=25,
+		)
+	)
+
+	with tempfile.TemporaryDirectory() as tmp_dir:
+		json_path = Path(tmp_dir) / "data.json"
+		owner.save_to_json(str(json_path))
+		loaded = Owner.load_from_json(str(json_path))
+
+	assert loaded.ownerId == "owner-1"
+	assert loaded.name == "Jordan"
+	assert len(loaded.viewPets()) == 1
+	loaded_pet = loaded.getPet("pet-1")
+	assert loaded_pet.name == "Milo"
+	assert len(loaded_pet.tasks) == 1
+	assert loaded_pet.tasks[0].description == "Morning walk"
+	assert loaded_pet.tasks[0].priority == 3
 
 
 def test_conflict_detection_flags_duplicate_times_for_same_pet() -> None:

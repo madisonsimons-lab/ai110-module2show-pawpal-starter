@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import date, time, datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 VALID_FREQUENCIES = {"once", "daily", "weekly", "monthly"}
@@ -205,6 +207,101 @@ class Owner:
             tasks.extend(pet.viewTasks())
         return sorted(tasks, key=lambda t: (t.dueDate, t.dueTime))
 
+    def to_dict(self) -> dict:
+        """Serialize this owner, pets, and tasks into JSON-safe dictionaries."""
+        return {
+            "ownerId": self.ownerId,
+            "name": self.name,
+            "email": self.email,
+            "pets": [
+                {
+                    "petId": pet.petId,
+                    "name": pet.name,
+                    "type": pet.type,
+                    "breed": pet.breed,
+                    "age": pet.age,
+                    "notes": pet.notes,
+                    "ownerId": pet.ownerId,
+                    "tasks": [
+                        {
+                            "taskId": task.taskId,
+                            "petId": task.petId,
+                            "description": task.description,
+                            "dueDate": task.dueDate.isoformat(),
+                            "dueTime": task.dueTime.isoformat(),
+                            "frequency": task.frequency,
+                            "isCompleted": task.isCompleted,
+                            "priority": task.priority,
+                            "duration_minutes": task.duration_minutes,
+                            "recurrence_end_date": task.recurrence_end_date.isoformat()
+                            if task.recurrence_end_date
+                            else None,
+                        }
+                        for task in pet.tasks
+                    ],
+                }
+                for pet in self.listOfPets
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Owner":
+        """Deserialize an owner, pets, and tasks from a dictionary payload."""
+        owner = cls(
+            ownerId=data["ownerId"],
+            name=data["name"],
+            email=data["email"],
+        )
+
+        for pet_data in data.get("pets", []):
+            pet = Pet(
+                petId=pet_data["petId"],
+                name=pet_data["name"],
+                type=pet_data["type"],
+                breed=pet_data["breed"],
+                age=int(pet_data["age"]),
+                notes=pet_data.get("notes", ""),
+                ownerId=pet_data["ownerId"],
+            )
+
+            for task_data in pet_data.get("tasks", []):
+                task = Task(
+                    taskId=task_data["taskId"],
+                    petId=task_data["petId"],
+                    description=task_data["description"],
+                    dueDate=date.fromisoformat(task_data["dueDate"]),
+                    dueTime=time.fromisoformat(task_data["dueTime"]),
+                    frequency=task_data.get("frequency", "once"),
+                    isCompleted=bool(task_data.get("isCompleted", False)),
+                    priority=int(task_data.get("priority", 1)),
+                    duration_minutes=int(task_data.get("duration_minutes", 30)),
+                    recurrence_end_date=date.fromisoformat(task_data["recurrence_end_date"])
+                    if task_data.get("recurrence_end_date")
+                    else None,
+                )
+                pet.addTask(task)
+
+            owner.addPet(pet)
+
+        return owner
+
+    def save_to_json(self, file_path: str = "data.json") -> None:
+        """Persist owner data to a JSON file on disk."""
+        path = Path(file_path)
+        if path.parent != Path("."):
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+        with path.open("w", encoding="utf-8") as file_obj:
+            json.dump(self.to_dict(), file_obj, indent=2)
+
+    @classmethod
+    def load_from_json(cls, file_path: str = "data.json") -> "Owner":
+        """Load owner data from JSON and rebuild object relationships."""
+        path = Path(file_path)
+        with path.open("r", encoding="utf-8") as file_obj:
+            payload = json.load(file_obj)
+        return cls.from_dict(payload)
+
 
 class Scheduler:
     def __init__(self, schedulerId: str, owner: Owner, currentDate: date) -> None:
@@ -291,14 +388,14 @@ class Scheduler:
         return next_task
 
     def getTodaysTasks(self) -> list[Task]:
-        """Return incomplete tasks due on the scheduler's current date, sorted by time then priority."""
+        """Return incomplete tasks due today, sorted by priority then time."""
         today_tasks = [
             task
             for task in self.retrieveAllTasks()
             if task.dueDate == self.currentDate and not task.isCompleted
         ]
-        # Sort by: time, then priority (descending)
-        return sorted(today_tasks, key=lambda t: (t.dueTime, -t.priority))
+        # Sort by: priority (descending), then time.
+        return sorted(today_tasks, key=lambda t: (-t.priority, t.dueTime))
 
     def getUpcomingTasks(self) -> list[Task]:
         """Return incomplete tasks due after the scheduler's current date."""
@@ -531,12 +628,12 @@ class Scheduler:
         return sorted(tasks, key=lambda t: t.dueTime)
 
     def sort_by_time_and_priority(self, tasks: list[Task]) -> list[Task]:
-        """Return tasks sorted by time and then by highest priority first.
+        """Return tasks sorted by highest priority first and then by time.
 
-        The tuple key ``(t.dueTime, -t.priority)`` keeps chronological ordering
-        while ensuring more important tasks appear first when times are equal.
+        The tuple key ``(-t.priority, t.dueTime)`` promotes high-priority tasks
+        while preserving chronological ordering among tasks with equal priority.
         """
-        return sorted(tasks, key=lambda t: (t.dueTime, -t.priority))
+        return sorted(tasks, key=lambda t: (-t.priority, t.dueTime))
 
     def sort_by_date_time(self, tasks: list[Task]) -> list[Task]:
         """Return tasks sorted first by date and then by time."""
@@ -563,3 +660,59 @@ class Scheduler:
             tasks = [t for t in tasks if t.isCompleted == isCompleted]
         
         return tasks
+
+    def find_next_available_slot(
+        self,
+        petId: str,
+        duration_minutes: int,
+        start_date: Optional[date] = None,
+        day_start: time = time(6, 0),
+        day_end: time = time(22, 0),
+        step_minutes: int = 15,
+        search_days: int = 7,
+    ) -> Optional[tuple[date, time]]:
+        """Find the earliest conflict-free slot for a pet within a search window.
+
+        This is an advanced scheduling helper that scans in step-sized
+        increments and returns the first slot where a task of the requested
+        duration does not overlap existing incomplete tasks for that pet.
+        """
+        if duration_minutes <= 0:
+            raise ValueError("duration_minutes must be greater than 0.")
+        if step_minutes <= 0:
+            raise ValueError("step_minutes must be greater than 0.")
+        if search_days <= 0:
+            raise ValueError("search_days must be greater than 0.")
+
+        self.owner.getPet(petId)
+        search_start = max(start_date or self.currentDate, self.currentDate)
+
+        for offset in range(search_days):
+            target_day = search_start + timedelta(days=offset)
+            pet_tasks = [
+                t
+                for t in self.retrieveAllTasks()
+                if t.petId == petId and t.dueDate == target_day and not t.isCompleted
+            ]
+
+            candidate_start = datetime.combine(target_day, day_start)
+            day_end_dt = datetime.combine(target_day, day_end)
+            requested_delta = timedelta(minutes=duration_minutes)
+
+            while candidate_start + requested_delta <= day_end_dt:
+                candidate_end = candidate_start + requested_delta
+                overlaps = False
+
+                for task in pet_tasks:
+                    task_start = datetime.combine(task.dueDate, task.dueTime)
+                    task_end = task_start + timedelta(minutes=task.duration_minutes)
+                    if candidate_start < task_end and candidate_end > task_start:
+                        overlaps = True
+                        break
+
+                if not overlaps:
+                    return target_day, candidate_start.time()
+
+                candidate_start += timedelta(minutes=step_minutes)
+
+        return None

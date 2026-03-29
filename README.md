@@ -1,30 +1,69 @@
-# PawPal+ (Module 2 Project)
+# PawPal+
 
-You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.
+PawPal+ is a Streamlit pet-care planner that helps an owner organize daily tasks for one or more pets.
+It combines task management with scheduling logic so owners can quickly see what to do, when to do it, and whether their plan has conflicts.
 
-## Scenario
+## Features
 
-A busy pet owner needs help staying consistent with pet care. They want an assistant that can:
+- Owner and pet management with validation of ownership relationships.
+- Task scheduling with due date, due time, frequency, priority, and duration.
+- Chronological sorting algorithms:
+	- Sort by time.
+	- Sort by priority then time.
+	- Sort by date then time.
+- Daily plan generation (`getTodaysTasks`) sorted by priority and time.
+- Advanced filtering:
+	- By pet.
+	- By completion status.
+	- By time window.
+	- Combined filter by status and pet.
+- Recurrence logic:
+	- Marking daily/weekly tasks complete can create the next occurrence automatically.
+	- Recurring schedule expansion across a date range.
+- Advanced algorithmic capability:
+	- `find_next_available_slot` scans a configurable time window and returns the earliest conflict-free slot for a pet.
+- Conflict intelligence:
+	- Detect overlapping task-duration conflicts.
+	- Detect same-time warning conflicts.
+	- Human-readable warning and conflict reports.
+- Data persistence:
+	- Owner, pets, and tasks are serialized to `data.json`.
+	- Streamlit loads persisted data on startup and auto-saves when pets/tasks are added.
+- Streamlit UI enhancements:
+	- Clear schedule table output.
+	- Visual feedback with `st.success`, `st.warning`, and `st.info`.
+	- Priority color coding (`🔴 High`, `🟡 Medium`, `🔵 Low`) and task-type emojis in the schedule table.
+	- Conflict warnings displayed directly in the planning workflow.
 
-- Track pet care tasks (walks, feeding, meds, enrichment, grooming, etc.)
-- Consider constraints (time available, priority, owner preferences)
-- Produce a daily plan and explain why it chose that plan
+## System Design
 
-Your job is to design the system first (UML), then implement the logic in Python, then connect it to the Streamlit UI.
+Core classes:
 
-## What you will build
+- `Owner`: manages pets and aggregates tasks across pets.
+- `Pet`: stores profile information and task list.
+- `Task`: stores scheduling fields and recurrence metadata.
+- `Scheduler`: orchestrates sorting, filtering, recurrence handling, and conflict detection.
 
-Your final app should:
+Final UML artifacts:
 
-- Let a user enter basic owner + pet info
-- Let a user add/edit tasks (duration + priority at minimum)
-- Generate a daily schedule/plan based on constraints and priorities
-- Display the plan clearly (and ideally explain the reasoning)
-- Include tests for the most important scheduling behaviors
+- Mermaid source: `uml_final.mmd`
+- Diagram image: `uml_final.png`
 
-## Getting started
+## Project Structure
 
-### Setup
+```text
+.
+├── app.py
+├── main.py
+├── pawpal_system.py
+├── tests/
+│   └── test_pawpal.py
+├── uml_final.mmd
+├── uml_final.png
+└── README.md
+```
+
+## Installation
 
 ```bash
 python -m venv .venv
@@ -32,33 +71,40 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Suggested workflow
+## Run The App
 
-1. Read the scenario carefully and identify requirements and edge cases.
-2. Draft a UML diagram (classes, attributes, methods, relationships).
-3. Convert UML into Python class stubs (no logic yet).
-4. Implement scheduling logic in small increments.
-5. Add tests to verify key behaviors.
-6. Connect your logic to the Streamlit UI in `app.py`.
-7. Refine UML so it matches what you actually built.
+```bash
+streamlit run app.py
+```
 
-## Architecture updates implemented
+## Agent Mode Usage
 
-The class skeleton was refined to reduce relationship drift and improve lookup performance.
+Agent Mode was used to plan and execute the advanced scheduler upgrades in discrete phases:
 
-- `Pet` and `Task` were implemented as dataclasses for cleaner models and type-safe fields.
-- `Scheduler` is the source of truth for task storage, with index structures for fast lookup by id, date, and pet.
-- `Owner` now validates pet ownership and delegates task assignment through `Scheduler`.
-- Task status is validated against allowed values (`pending`, `in_progress`, `completed`, `cancelled`).
-- Ownership and assignment guards were added to prevent mismatched `ownerId` and `petId` relationships.
+1. Planned JSON persistence for nested objects and selected custom dictionary conversion over marshmallow to avoid external dependencies.
+2. Implemented `Owner.save_to_json` and `Owner.load_from_json` in `pawpal_system.py` and wired startup loading/auto-save behavior in `app.py`.
+3. Added an advanced scheduling algorithm (`find_next_available_slot`) and integrated it into Streamlit as an interactive suggestion tool.
+4. Refined priority-first scheduling and UI formatting with emoji-based priority/status indicators for higher readability.
 
-These changes preserve the original UML intent while strengthening data consistency and runtime behavior.
+This workflow made it easier to keep architecture decisions consistent while still shipping features quickly.
 
-## Smarter Scheduling
+## Run Tests
 
-The scheduler now includes several algorithmic features that make task planning more useful and realistic.
+```bash
+python3 -m pytest -q
+```
 
-- Sorting by time, date, and priority so daily plans appear in a clear order.
-- Filtering by pet, completion status, and time window to narrow down the task list quickly.
-- Recurring task expansion and auto-rescheduling for daily or weekly tasks after completion.
-- Conflict detection for overlapping task durations plus lightweight warnings when multiple tasks share the same start time.
+Current automated test suite coverage includes:
+
+- Sorting correctness (chronological ordering).
+- Recurrence logic for daily and weekly follow-up tasks.
+- Conflict detection for overlaps and duplicate times.
+- Filtering behavior by pet, status, and time window.
+
+## 📸 Demo
+
+<a href="/course_images/ai110/pawpal_streamlit_demo.png" target="_blank"><img src='/course_images/ai110/pawpal_streamlit_demo.png' title='PawPal App' width='' alt='PawPal App' class='center-block' /></a>
+
+## Reliability
+
+Confidence level from current test results: 4/5 stars.

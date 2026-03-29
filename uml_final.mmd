@@ -1,0 +1,86 @@
+classDiagram
+    class Task {
+        +str taskId
+        +str petId
+        +str description
+        +date dueDate
+        +time dueTime
+        +str frequency
+        +bool isCompleted
+        +int priority
+        +int duration_minutes
+        +Optional~date~ recurrence_end_date
+        +createTask() None
+        +editTask(description, due_date, due_time, frequency) None
+        +markComplete() None
+        +mark_complete() None
+        +deleteTask() None
+        +displayTask() str
+        +is_recurring() bool
+        +next_due_date() Optional~date~
+        +recurrence_base_id() str
+    }
+
+    class Pet {
+        +str petId
+        +str name
+        +str type
+        +str breed
+        +int age
+        +str notes
+        +str ownerId
+        +list~Task~ tasks
+        +updatePetInfo(name, pet_type, breed, age, notes) None
+        +displayPetDetails() str
+        +addTask(task) None
+        +add_task(task) None
+        +removeTask(taskId) None
+        +viewTasks() list~Task~
+    }
+
+    class Owner {
+        +str ownerId
+        +str name
+        +str email
+        +list~Pet~ listOfPets
+        -dict~str, Pet~ _petsById
+        +addPet(pet) None
+        +removePet(petId) None
+        +viewPets() list~Pet~
+        +getPet(petId) Pet
+        +assignTaskToPet(petId, task) None
+        +getAllTasks() list~Task~
+    }
+
+    class Scheduler {
+        +str schedulerId
+        +Owner owner
+        +date currentDate
+        +retrieveAllTasks() list~Task~
+        +addTask(task) None
+        +removeTask(taskId) None
+        +mark_task_complete(taskId) Task
+        -_create_next_occurrence(task, pet) Optional~Task~
+        +getTodaysTasks() list~Task~
+        +getUpcomingTasks() list~Task~
+        +organizeTasksByDate() dict~date, list~Task~~
+        +getTasksForPet(petId) list~Task~
+        +getTasksByStatus(isCompleted) list~Task~
+        +getTasksByTimeWindow(start_time, end_time, date_filter) list~Task~
+        +getTasksForPetAndStatus(petId, isCompleted) list~Task~
+        +expandRecurringTasks(startDate, endDate) list~Task~
+        +detectConflicts(date_filter) dict
+        +detectSameTimeConflicts(date_filter) dict~time, list~Task~~
+        +getWarningReport(date_filter) str
+        +getConflictReport(date_filter) str
+        +sort_by_time(tasks) list~Task~
+        +sort_by_time_and_priority(tasks) list~Task~
+        +sort_by_date_time(tasks) list~Task~
+        +filter_by_status_and_pet(petId, isCompleted) list~Task~
+    }
+
+    Owner "1" o-- "0..*" Pet : owns
+    Pet "1" o-- "0..*" Task : contains
+    Scheduler "1" --> "1" Owner : manages
+    Scheduler ..> Pet : queries
+    Scheduler ..> Task : schedules/sorts

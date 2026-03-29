@@ -119,7 +119,7 @@ def seed_demo_data() -> Scheduler:
 
 def print_todays_schedule(scheduler: Scheduler) -> None:
 	todays_tasks = scheduler.getTodaysTasks()
-	print("Today's Schedule (sorted by time, then priority)")
+	print("Today's Schedule (sorted by priority, then time)")
 	print("=" * 60)
 	print(f"Owner: {scheduler.owner.name} ({scheduler.owner.email})")
 	print(f"Date: {scheduler.currentDate.isoformat()}")
@@ -132,8 +132,9 @@ def print_todays_schedule(scheduler: Scheduler) -> None:
 	for task in todays_tasks:
 		pet = scheduler.owner.getPet(task.petId)
 		priority_label = {1: "Low", 2: "Medium", 3: "High"}[task.priority]
+		priority_icon = {1: "🔵", 2: "🟡", 3: "🔴"}[task.priority]
 		duration = f"({task.duration_minutes} min)" if task.duration_minutes else ""
-		print(f"{task.dueTime.strftime('%I:%M %p')} - {pet.name}: {task.description} [{priority_label}] {duration}")
+		print(f"{priority_icon} {task.dueTime.strftime('%I:%M %p')} - {pet.name}: {task.description} [{priority_label}] {duration}")
 
 
 def print_recurring_week_schedule(scheduler: Scheduler) -> None:
@@ -214,8 +215,8 @@ def demo_sorting_methods(scheduler: Scheduler) -> None:
 		pet = scheduler.owner.getPet(task.petId)
 		print(f"  {task.dueTime.strftime('%H:%M')} - Priority {task.priority} - {pet.name}: {task.description}")
 	
-	# Sort by time and priority (high to low)
-	print("\n[2] Sorted by Time, then Priority: sorted(tasks, key=lambda t: (t.dueTime, -t.priority))")
+	# Sort by priority first, then time
+	print("\n[2] Sorted by Priority, then Time: sorted(tasks, key=lambda t: (-t.priority, t.dueTime))")
 	by_time_priority = scheduler.sort_by_time_and_priority(all_tasks)
 	for task in by_time_priority:
 		pet = scheduler.owner.getPet(task.petId)
@@ -244,13 +245,14 @@ def demo_filtering_and_sorting(scheduler: Scheduler) -> None:
 		print(f"  {task.dueTime.strftime('%H:%M')} - {pet.name}: {task.description} [{status}]")
 	
 	# Demo 2: Filter only incomplete tasks
-	print("\n[FILTERED: Only incomplete tasks, then sorted by time + priority]")
+	print("\n[FILTERED: Only incomplete tasks, then sorted by priority + time]")
 	incomplete = scheduler.filter_by_status_and_pet(isCompleted=False)
 	sorted_incomplete = scheduler.sort_by_time_and_priority(incomplete)
 	for task in sorted_incomplete:
 		pet = scheduler.owner.getPet(task.petId)
-		print(f"  {task.dueTime.strftime('%H:%M')} - Priority {task.priority} - {pet.name}: {task.description}")
-	
+		emoji = {1: "🔵", 2: "🟡", 3: "🔴"}.get(task.priority, "⚪")
+		print(f"  {emoji} {task.dueTime.strftime('%H:%M')} - Priority {task.priority} - {pet.name}: {task.description}")
+
 	# Demo 3: Filter only Milo's tasks, sorted by time
 	print("\n[FILTERED: Only Milo's tasks (pet-001), then sorted by time]")
 	milo_tasks = scheduler.filter_by_status_and_pet(petId="pet-001")
@@ -258,7 +260,7 @@ def demo_filtering_and_sorting(scheduler: Scheduler) -> None:
 	for task in sorted_milo:
 		status = "✓ DONE" if task.isCompleted else "○ TODO"
 		print(f"  {task.dueTime.strftime('%H:%M')} - {task.description} [{status}]")
-	
+
 	# Demo 4: Filter only Luna's incomplete tasks
 	print("\n[FILTERED: Only Luna's incomplete tasks (pet-002), sorted by priority]")
 	luna_incomplete = scheduler.filter_by_status_and_pet(petId="pet-002", isCompleted=False)
@@ -266,7 +268,7 @@ def demo_filtering_and_sorting(scheduler: Scheduler) -> None:
 	for task in sorted_luna:
 		priority = {1: "Low", 2: "Med", 3: "High"}[task.priority]
 		print(f"  {task.dueTime.strftime('%H:%M')} - Priority {priority} - {task.description}")
-	
+
 	# Demo 5: Show completed tasks
 	print("\n[FILTERED: Only completed tasks]")
 	completed = scheduler.filter_by_status_and_pet(isCompleted=True)
@@ -276,6 +278,23 @@ def demo_filtering_and_sorting(scheduler: Scheduler) -> None:
 			print(f"  ✓ {task.dueTime.strftime('%H:%M')} - {pet.name}: {task.description}")
 	else:
 		print("  No completed tasks yet.")
+
+
+def demo_next_available_slot(scheduler: Scheduler) -> None:
+	"""Demonstrate advanced algorithm: find earliest available slot for a pet."""
+	print("\n\nNext Available Slot Demo")
+	print("=" * 60)
+	suggestion = scheduler.find_next_available_slot(
+		petId="pet-001",
+		duration_minutes=30,
+		start_date=scheduler.currentDate,
+		search_days=3,
+	)
+	if suggestion is None:
+		print("No slot found in the next 3 days.")
+	else:
+		slot_date, slot_time = suggestion
+		print(f"Suggested 30-minute slot for Milo: {slot_date.isoformat()} at {slot_time.strftime('%H:%M')}")
 
 
 def demo_auto_rescheduling(scheduler: Scheduler) -> None:
@@ -325,3 +344,4 @@ if __name__ == "__main__":
 	demo_sorting_methods(demo_scheduler)
 	demo_filtering_and_sorting(demo_scheduler)
 	demo_auto_rescheduling(demo_scheduler)
+	demo_next_available_slot(demo_scheduler)
