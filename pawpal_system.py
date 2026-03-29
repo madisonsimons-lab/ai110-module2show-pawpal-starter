@@ -386,3 +386,27 @@ class Scheduler:
                 report.append(f"  {times_str}: {descriptions}")
 
         return "\n".join(report)
+
+    def sort_by_time(self, tasks: list[Task]) -> list[Task]:
+        """Sort a list of tasks by their time attribute using a lambda key function.
+        
+        The lambda function extracts the dueTime (time object) for comparison.
+        Python's time class supports natural ordering, so tasks sort chronologically.
+        """
+        return sorted(tasks, key=lambda t: t.dueTime)
+
+    def sort_by_time_and_priority(self, tasks: list[Task]) -> list[Task]:
+        """Sort tasks by time, then by priority (high to low).
+        
+        The lambda key returns a tuple: (time, -priority_value).
+        Tuple sorting works left-to-right: first by time, then by negated priority
+        (negative so higher priority values appear first).
+        """
+        return sorted(tasks, key=lambda t: (t.dueTime, -t.priority))
+
+    def sort_by_date_time(self, tasks: list[Task]) -> list[Task]:
+        """Sort tasks by date, then by time.
+        
+        Useful for displaying a chronological view across multiple days.
+        """
+        return sorted(tasks, key=lambda t: (t.dueDate, t.dueTime))

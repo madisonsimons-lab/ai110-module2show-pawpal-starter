@@ -162,9 +162,41 @@ def demo_filtering(scheduler: Scheduler) -> None:
 		print(f"  {task.dueTime.strftime('%H:%M')} - {pet.name}: {task.description}")
 
 
+def demo_sorting_methods(scheduler: Scheduler) -> None:
+	"""Demonstrate lambda-based sorting methods for tasks."""
+	print("\n\nLambda-Based Sorting Methods Demo")
+	print("=" * 60)
+	
+	# Get all tasks
+	all_tasks = scheduler.retrieveAllTasks()
+	
+	# Sort by time only
+	print("\n[1] Sorted by Time Only: sorted(tasks, key=lambda t: t.dueTime)")
+	by_time = scheduler.sort_by_time(all_tasks)
+	for task in by_time:
+		pet = scheduler.owner.getPet(task.petId)
+		print(f"  {task.dueTime.strftime('%H:%M')} - Priority {task.priority} - {pet.name}: {task.description}")
+	
+	# Sort by time and priority (high to low)
+	print("\n[2] Sorted by Time, then Priority: sorted(tasks, key=lambda t: (t.dueTime, -t.priority))")
+	by_time_priority = scheduler.sort_by_time_and_priority(all_tasks)
+	for task in by_time_priority:
+		pet = scheduler.owner.getPet(task.petId)
+		priority = {1: "Low", 2: "Med", 3: "High"}[task.priority]
+		print(f"  {task.dueTime.strftime('%H:%M')} - Priority {priority} - {pet.name}: {task.description}")
+	
+	# Sort by date and time
+	print("\n[3] Sorted by Date & Time: sorted(tasks, key=lambda t: (t.dueDate, t.dueTime))")
+	by_date_time = scheduler.sort_by_date_time(all_tasks)
+	for task in by_date_time:
+		pet = scheduler.owner.getPet(task.petId)
+		print(f"  {task.dueDate} {task.dueTime.strftime('%H:%M')} - {pet.name}: {task.description}")
+
+
 if __name__ == "__main__":
 	demo_scheduler = seed_demo_data()
 	print_todays_schedule(demo_scheduler)
 	print_recurring_week_schedule(demo_scheduler)
 	print_conflict_detection(demo_scheduler)
 	demo_filtering(demo_scheduler)
+	demo_sorting_methods(demo_scheduler)
